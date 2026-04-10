@@ -7,124 +7,139 @@ import configparser
 import os
 import sys
 
-# Descobre a pasta onde o .exe está rodando
 if getattr(sys, 'frozen', False):
     app_path = os.path.dirname(sys.executable)
 else:
     app_path = os.path.dirname(os.path.abspath(__file__))
 
 config_file = os.path.join(app_path, 'config.ini')
-config = configparser.ConfigParser()
+config = configparser.ConfigParser(allow_no_value=True)
 
-# Exames pré-configurados que você pediu (com valores padrão)
-default_exams = {
-    # Hemograma
-    'HB': '', 'HT': '', 'GL': '', 'S': '', 'L': '', 'P': '',
-    # Perfil Lipídico
-    'CT': '', 'HDL': '', 'LDL': '', 'TG': '',
-    # Perfil Glicêmico
-    'GLI': '', 'A1C': '',
-    # Função Renal e Eletrólitos
-    'CR': '', 'AC UR': '', 'K': '', 'NA': '',
-    # Função Hepática
-    'TGO': '', 'TGP': '', 'GGT': '', 'FALC': '',
-    # Vitaminas e Hormônios
-    'TSH': '', '25OHD': '', 'B12': '',
-    # Urina e Parasitológico
-    'EAS': 'NDN', 'MIF': 'NEG', 'PSOF': 'NEG',
-    # Sorologias
-    'HCV': 'NR', 'HBSAG': 'NR', 'VDRL': 'NR', 'HIV': 'NR'
+default_config = {
+    'HEMOGRAMA': {'hb': '', 'ht': '', 'gl': '', 's': '', 'l': '', 'p': ''},
+    'LIPIDOGRAMA': {'ct': '', 'hdl': '', 'ldl': '', 'tg': ''},
+    'GLICEMIA': {'gli': '', 'a1c': ''},
+    'RENAL E ELETROLITOS': {'cr': '', 'ur': '', 'ac ur': '', 'k': '', 'na': '', 'mg': '', 'cl': '', 'ca': '', 'ca tot': ''},
+    'HEPATICO E HORMONAL': {'tgo': '', 'tgp': '', 'ggt': '', 'falc': '', 'tsh': '', 'pth': '', 'vit d': '', 'b12': ''},
+    'SOROLOGIAS E MARCADORES': {'hcv': 'NR', 'hbsag': 'NR', 'vdrl': 'NR', 'hiv': 'NR', 'psa': ''},
+    'URINA E FEZES': {'eas': 'NDN', 'mif': 'NEG', 'psof': 'NEG'}
 }
 
-# Se não existir o config.ini, cria um com os padrões
 if not os.path.exists(config_file):
-    config['EXAMES'] = default_exams
+    for sec, items in default_config.items():
+        config[sec] = items
     with open(config_file, 'w') as configfile:
         config.write(configfile)
 
-# Lê o arquivo de configuração
 config.read(config_file)
-exames_config = config['EXAMES']
 
 def disparar_texto(event=None):
     resultados = []
     for label, entry in campos.items():
         valor = entry.get().strip()
-        if valor: # Só entra se não estiver em branco
+        if valor:
             resultados.append(f"{label} {valor}")
     
     if resultados:
         texto_final = " / ".join(resultados) + " /"
         pyperclip.copy(texto_final)
     
-    # Esconde a janela e foca no prontuário que estava atrás
     root.withdraw()
-    time.sleep(0.3) # Tempo crítico para o Windows trocar o foco de janela
+    time.sleep(0.3)
     
     if resultados:
         pyautogui.hotkey('ctrl', 'v')
     
-    # Encerra o programa
     root.quit()
 
-# --- Configuração da Interface (Estilo "Gov/Profissional") ---
+# Funções de Navegação e Foco
+def move_up(event):
+    event.widget.tk_focusPrev().focus()
+    return "break"
+
+def move_down(event):
+    event.widget.tk_focusNext().focus()
+    return "break"
+
+def on_focus_in(event):
+    event.widget.configure(background="#fffacd") # Fica amarelo claro ao focar
+    event.widget.select_range(0, tk.END) # Seleciona tudo para sobrescrever fácil
+
+def on_focus_out(event):
+    event.widget.configure(background="white") # Volta a cor normal
+
+# --- Configuração da Interface ---
 root = tk.Tk()
 root.title("Medical Lab Entry - Dept. 42")
 root.attributes('-topmost', True)
 root.resizable(False, False)
 
-# Tema profissional
 style = ttk.Style(root)
 if 'clam' in style.theme_names():
     style.theme_use('clam')
 
-# Cores e Fontes Estilo "Sistema Federal"
 BG_COLOR = "#e8ecef"
 HEADER_BG = "#2c3e50"
+SECTION_COLOR = "#34495e"
 root.configure(bg=BG_COLOR)
 
-# Cabeçalho
-header = tk.Frame(root, bg=HEADER_BG, pady=10)
+header = tk.Frame(root, bg=HEADER_BG, pady=8)
 header.pack(fill='x')
-tk.Label(header, text="LABORATORY DATA ENTRY SYSTEM", fg="white", bg=HEADER_BG, font=('Segoe UI', 11, 'bold')).pack()
+tk.Label(header, text="LABORATORY DATA ENTRY", fg="white", bg=HEADER_BG, font=('Segoe UI', 11, 'bold')).pack()
 
-# Container Principal
-body = tk.Frame(root, bg=BG_COLOR, padx=20, pady=15)
+body = tk.Frame(root, bg=BG_COLOR, padx=15, pady=10)
 body.pack(fill='both', expand=True)
 
 campos = {}
-MAX_ROWS = 12 # Quebra em colunas a cada 12 exames para não ficar muito alto
+current_col = 0
+current_row = 0
+MAX_ROWS_PER_COLUMN = 20 
 
-for i, (label_text, default_val) in enumerate(exames_config.items()):
-    col = (i // MAX_ROWS) * 2
-    row = i % MAX_ROWS
+for section in config.sections():
+    if current_row >= MAX_ROWS_PER_COLUMN - 3:
+        current_col += 2
+        current_row = 0
     
-    # Rótulo (Label)
-    lbl = ttk.Label(body, text=f"{label_text.upper()}:", background=BG_COLOR, font=('Segoe UI', 9, 'bold'))
-    lbl.grid(row=row, column=col, sticky='e', padx=(15 if col > 0 else 0, 5), pady=4)
+    sec_lbl = tk.Label(body, text=section.upper(), font=('Segoe UI', 9, 'bold'), bg=BG_COLOR, fg=SECTION_COLOR)
+    sec_lbl.grid(row=current_row, column=current_col, columnspan=2, sticky='w', pady=(8, 0), padx=5)
     
-    # Campo de Texto (Entry)
-    en = ttk.Entry(body, width=12, font=('Consolas', 10))
-    en.insert(0, default_val) # Preenche com o valor padrão do .ini
-    en.grid(row=row, column=col+1, sticky='w', pady=4)
+    sep = ttk.Separator(body, orient='horizontal')
+    sep.grid(row=current_row+1, column=current_col, columnspan=2, sticky='ew', padx=5, pady=(2, 6))
+    current_row += 2
     
-    # Seleciona o texto se tiver valor padrão, para facilitar sobrescrever
-    if default_val:
-        en.bind("<FocusIn>", lambda e, widget=en: widget.select_range(0, tk.END))
+    for key, default_val in config.items(section):
+        if current_row >= MAX_ROWS_PER_COLUMN:
+            current_col += 2
+            current_row = 0
+            
+        lbl = ttk.Label(body, text=f"{key.upper()}:", background=BG_COLOR, font=('Segoe UI', 9, 'bold'))
+        lbl.grid(row=current_row, column=current_col, sticky='e', padx=(10, 5), pady=3)
         
-    campos[label_text.upper()] = en
+        en = tk.Entry(body, width=10, font=('Consolas', 11, 'bold'), relief='solid', borderwidth=1)
+        if default_val:
+            en.insert(0, default_val)
+        
+        # Binds de atalhos e cores
+        en.bind("<FocusIn>", on_focus_in)
+        en.bind("<FocusOut>", on_focus_out)
+        en.bind("<Up>", move_up)
+        en.bind("<Down>", move_down)
+        
+        en.grid(row=current_row, column=current_col+1, sticky='w', pady=3, padx=(0, 10))
+        
+        campos[key.upper()] = en
+        current_row += 1
 
-# Botão de Ação
 footer = tk.Frame(root, bg=BG_COLOR, pady=10)
 footer.pack(fill='x')
 btn = ttk.Button(footer, text="SUBMIT & PASTE (ENTER)", command=disparar_texto)
 btn.pack(ipady=2, ipadx=10)
 
 root.bind('<Return>', disparar_texto)
-root.bind('<Escape>', lambda e: root.quit()) # Esc fecha sem fazer nada
+root.bind('<Escape>', lambda e: root.quit())
 
 # Foca no primeiro campo ao abrir
 first_field = list(campos.values())[0]
 first_field.focus()
 
-root.mainloop()
+root.mainloop()f
